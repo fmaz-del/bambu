@@ -24,6 +24,8 @@ import numpy as np
 import trimesh
 from PIL import Image, ImageOps
 
+import repair as repair_mod
+
 # Outward normal and image "up" vector for each named face, in model space.
 # The horizontal image axis is u = cross(-normal, up): what you see standing
 # outside the part and looking straight at that face.
@@ -44,7 +46,7 @@ PROD = "{http://schemas.microsoft.com/3dmanufacturing/production/2015/06}"
 # image -> height map
 # --------------------------------------------------------------------------- #
 
-def load_heightmap(path, max_px, invert, threshold, blur, crop):
+def load_heightmap(path, max_px, invert, threshold, blur, crop, contrast=False):
     """Return (h, crop_frac) where h is in [0, 1]; 1 = full relief, 0 = background."""
     img = Image.open(path)
     if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
@@ -62,7 +64,13 @@ def load_heightmap(path, max_px, invert, threshold, blur, crop):
         from PIL import ImageFilter
         img = img.filter(ImageFilter.GaussianBlur(blur))
 
+    if contrast:
+        img = ImageOps.autocontrast(img, cutoff=1)
+
     g = np.asarray(img, dtype=np.float64) / 255.0
+    if contrast:                                      # spread the tones over the full depth
+        lo, hi = np.percentile(g, [1, 99])
+        g = np.clip((g - lo) / max(hi - lo, 1e-6), 0, 1)
     h = g if invert else 1.0 - g                      # default: dark ink is the feature
     if threshold is not None:
         h = (h >= threshold).astype(np.float64)
@@ -70,7 +78,7 @@ def load_heightmap(path, max_px, invert, threshold, blur, crop):
 
     box = (0.0, 0.0, 1.0, 1.0)                        # u0, v0, u1, v1 as fractions
     if crop:
-        ink = h > 1e-6
+        ink = h > 0.02
         if ink.any():
             rows, cols = np.where(ink.any(1))[0], np.where(ink.any(0))[0]
             r0, r1 = max(0, rows[0] - 1), min(h.shape[0] - 1, rows[-1] + 1)
@@ -186,7 +194,13 @@ def write_threemf(src, dst, mesh, face_count):
         old = ET.fromstring(zf.read(path))
         obj = next(o for o in old.findall(f"{CORE}resources/{CORE}object")
                    if o.get("id") == obj_id)
-        attrs = " ".join(f'{k}="{v}"' for k, v in obj.attrib.items())
+        # ElementTree hands back namespaced attributes in Clark notation
+        # ("{uri}UUID"), which is not valid XML to write straight out again.
+        def qname(k):
+            return f"p:{k[len(PROD):]}" if k.startswith(PROD) else (
+                f"BambuStudio:{k.split('}')[-1]}" if k.startswith("{http://schemas.bambulab.com")
+                else k.split("}")[-1] if k.startswith("{") else k)
+        attrs = " ".join(f'{qname(k)}="{v}"' for k, v in obj.attrib.items())
         rows.append(
             '<model unit="millimeter" xml:lang="en-US" '
             'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" '
@@ -268,8 +282,9 @@ def render_face(mesh, face, path, px=700):
     ax[0].imshow(shade, origin="lower", extent=[xs[0], xs[-1], ys[0], ys[-1]],
                  cmap="gray", vmin=0, vmax=1)
     ax[0].set_title(f"{face} face, lit from the upper left")
+    lo_h, hi_h = np.nanpercentile(H, 0.5), np.nanpercentile(H, 99.5)
     im = ax[1].imshow(H, origin="lower", extent=[xs[0], xs[-1], ys[0], ys[-1]],
-                      cmap="magma", vmin=-0.02, vmax=max(np.nanmax(H), 0.01))
+                      cmap="magma", vmin=lo_h, vmax=hi_h if hi_h > lo_h else lo_h + 0.01)
     ax[1].set_title("relief height, mm"); plt.colorbar(im, ax=ax[1], shrink=.6)
     for a in ax:
         a.set_aspect("equal"); a.set_xlabel("u, mm"); a.set_ylabel("v, mm")
@@ -308,6 +323,13 @@ def main():
                    help="pixels along the picture's longest side (mesh density)")
     p.add_argument("--embed", type=float, default=0.6,
                    help="mm the relief base is sunk into the part for a clean join")
+    p.add_argument("--flatten", type=float, default=0.0, metavar="MM",
+                   help="fill --region flush to the face plane to this depth before "
+                        "applying the picture, clearing any old surface decoration")
+    p.add_argument("--repair", action="store_true",
+                   help="clean the mesh into one watertight solid first (needed to engrave)")
+    p.add_argument("--contrast", action="store_true",
+                   help="stretch the picture's tones to use the full depth (for photos)")
     p.add_argument("--preview", default=None, help="write a PNG preview of the face")
     p.add_argument("--no-boolean", action="store_true",
                    help="merge shells instead of a boolean (emboss only)")
@@ -316,12 +338,11 @@ def main():
     model = trimesh.load(args.model, force="mesh")
     print(f"model:  {len(model.faces)} triangles, bounds "
           f"{np.round(model.bounds[0], 2).tolist()} .. {np.round(model.bounds[1], 2).tolist()}")
-    if not model.is_watertight:
-        print("  note: not watertight; running a repair pass")
-        model.process(validate=True)
-        trimesh.repair.fill_holes(model)
-        trimesh.repair.fix_normals(model)
-        print(f"  watertight after repair: {model.is_watertight}")
+    if args.repair:
+        print("  repairing into a single solid")
+        model = repair_mod.repair(model)
+    elif not model.is_volume:
+        print("  note: mesh is not a closed volume; pass --repair to fix it")
 
     origin, u, v, normal = face_frame(model.bounds, args.face)
     ua, us_, va, vs_ = inplane_axes(u, v)
@@ -331,7 +352,8 @@ def main():
           f"={origin[int(np.argmax(abs(normal)))]:.2f}")
 
     hm, box = load_heightmap(args.image, args.resolution, args.invert,
-                             args.threshold, args.blur, not args.no_crop)
+                             args.threshold, args.blur,
+                             not args.no_crop, args.contrast)
     if args.rotate:
         hm = np.rot90(hm, args.rotate // 90)
         if args.rotate in (90, 270):
@@ -368,6 +390,22 @@ def main():
           f"centre offset ({cu:+.2f}, {cv:+.2f}) mm, {args.mode} {args.depth} mm")
     if args.region and (size_u > avail_u + 1e-6 or size_v > avail_v + 1e-6):
         print("  warning: picture overflows the region")
+
+    if args.flatten:
+        if not args.region:
+            sys.exit("--flatten needs --region")
+        naxis = int(np.argmax(np.abs(normal)))
+        a0, b0, a1, b1 = args.region
+        lo = np.empty(3); hi = np.empty(3)
+        lo[ua], hi[ua] = min(a0, a1), max(a0, a1)
+        lo[va], hi[va] = min(b0, b1), max(b0, b1)
+        plane = origin[naxis]
+        inward = plane - normal[naxis] * args.flatten
+        lo[naxis], hi[naxis] = min(plane, inward), max(plane, inward)
+        slab = trimesh.creation.box(bounds=np.array([lo, hi]))
+        print(f"flatten: filling {hi[ua] - lo[ua]:.1f} x {hi[va] - lo[va]:.1f} mm "
+              f"to {args.flatten} mm deep")
+        model = trimesh.boolean.union([model, slab])
 
     if args.mode == "emboss":
         relief = build_relief(hm * args.depth, size_u, size_v, args.embed)
