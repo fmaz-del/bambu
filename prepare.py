@@ -43,6 +43,9 @@ def main():
     p.add_argument("--fade-top", type=float, default=0.0, metavar="FRAC")
     p.add_argument("--fade-left", type=float, default=0.0, metavar="FRAC")
     p.add_argument("--fade-right", type=float, default=0.0, metavar="FRAC")
+    p.add_argument("--aspect", default=None, metavar="W:H",
+                   help="centre-crop the picture to this width:height ratio, keeping the "
+                        "subject centred, so it can fill a taller or wider panel")
     p.add_argument("--floor", type=float, default=0.06,
                    help="tone the subject never goes below, keeping it clear of the surface")
     args = p.parse_args()
@@ -90,6 +93,20 @@ def main():
         else:
             ramp[i0:i0 + n] = np.minimum(ramp[i0:i0 + n], f)
         depth *= ramp[:, None] if axis == 0 else ramp[None, :]
+
+    if args.aspect:
+        aw, ah = (float(v) for v in args.aspect.split(":"))
+        h, w = depth.shape
+        want = aw / ah
+        if w / h > want:                               # too wide: trim the sides
+            nw, nh = int(round(h * want)), h
+        else:                                          # too tall: trim top and bottom
+            nw, nh = w, int(round(w / want))
+        ys_, xs_ = np.where(alpha > 0.5)
+        cy = int(np.clip(ys_.mean() if len(ys_) else h / 2, nh / 2, h - nh / 2))
+        cx = int(np.clip(xs_.mean() if len(xs_) else w / 2, nw / 2, w - nw / 2))
+        depth = depth[cy - nh // 2:cy - nh // 2 + nh, cx - nw // 2:cx - nw // 2 + nw]
+        print(f"cropped to {nw}x{nh} px for a {args.aspect} panel")
 
     Image.fromarray(((1.0 - depth) * 255).astype(np.uint8), "L").save(args.out)
     print(f"wrote {args.out}  subject covers {100 * (alpha > 0.5).mean():.1f}% of the frame, "
