@@ -447,6 +447,13 @@ def main():
             print(f"  boolean failed ({exc}); merging shells instead")
             result = trimesh.util.concatenate([model, relief])
 
+    # The boolean can leave vertices a fraction of a nanometre apart. Writing them
+    # rounded would collapse those pairs into zero-area faces and non-manifold
+    # edges, so merge them first, well below anything a printer could resolve.
+    result.merge_vertices(digits_vertex=5)
+    result.update_faces(result.nondegenerate_faces(height=1e-8))
+    result.remove_unreferenced_vertices()
+
     out = args.out or args.model.rsplit(".", 1)[0] + "_image.stl"
     if out.lower().endswith(".3mf"):
         if not args.model.lower().endswith(".3mf"):
