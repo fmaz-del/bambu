@@ -209,11 +209,13 @@ def write_threemf(src, dst, mesh, face_count):
             'requiredextensions="p">')
         rows.append(' <metadata name="BambuStudio:3mfVersion">1</metadata>')
         rows.append(f' <resources>\n  <object {attrs}>\n   <mesh>\n    <vertices>')
-        # repr() gives the shortest string that round-trips a float exactly.
+        # repr() of a Python float is the shortest string that round-trips exactly.
         # Fixed-precision formatting collapses vertex pairs that the boolean leaves
         # a fraction of a nanometre apart, turning a watertight mesh into one with
-        # zero-area faces and non-manifold edges.
-        rows += [f'     <vertex x="{x!r}" y="{y!r}" z="{z!r}"/>' for x, y, z in local]
+        # zero-area faces and non-manifold edges. The float() is required: repr() of
+        # a NumPy scalar renders as "np.float64(...)" under NumPy 2.
+        rows += [f'     <vertex x="{float(x)!r}" y="{float(y)!r}" z="{float(z)!r}"/>'
+                 for x, y, z in local]
         rows.append('    </vertices>\n    <triangles>')
         rows += [f'     <triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in mesh.faces]
         rows.append('    </triangles>\n   </mesh>\n  </object>\n </resources>\n <build/>\n</model>')
