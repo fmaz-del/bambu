@@ -209,7 +209,11 @@ def write_threemf(src, dst, mesh, face_count):
             'requiredextensions="p">')
         rows.append(' <metadata name="BambuStudio:3mfVersion">1</metadata>')
         rows.append(f' <resources>\n  <object {attrs}>\n   <mesh>\n    <vertices>')
-        rows += [f'     <vertex x="{x:.7f}" y="{y:.7f}" z="{z:.7f}"/>' for x, y, z in local]
+        # repr() gives the shortest string that round-trips a float exactly.
+        # Fixed-precision formatting collapses vertex pairs that the boolean leaves
+        # a fraction of a nanometre apart, turning a watertight mesh into one with
+        # zero-area faces and non-manifold edges.
+        rows += [f'     <vertex x="{x!r}" y="{y!r}" z="{z!r}"/>' for x, y, z in local]
         rows.append('    </vertices>\n    <triangles>')
         rows += [f'     <triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in mesh.faces]
         rows.append('    </triangles>\n   </mesh>\n  </object>\n </resources>\n <build/>\n</model>')
@@ -446,13 +450,6 @@ def main():
                 raise
             print(f"  boolean failed ({exc}); merging shells instead")
             result = trimesh.util.concatenate([model, relief])
-
-    # The boolean can leave vertices a fraction of a nanometre apart. Writing them
-    # rounded would collapse those pairs into zero-area faces and non-manifold
-    # edges, so merge them first, well below anything a printer could resolve.
-    result.merge_vertices(digits_vertex=5)
-    result.update_faces(result.nondegenerate_faces(height=1e-8))
-    result.remove_unreferenced_vertices()
 
     out = args.out or args.model.rsplit(".", 1)[0] + "_image.stl"
     if out.lower().endswith(".3mf"):
