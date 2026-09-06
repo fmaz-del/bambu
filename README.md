@@ -31,7 +31,8 @@ prints correctly. An *engrave* would need a repaired mesh first.
 ## Result
 
 `xbloom_face_portrait.3mf` carries the portrait carved into the left panel:
-78 x 77 mm, 1.0 mm deep, cut from `portrait_source.jpg`. The subject is masked
+78 x 77 mm, 1.0 mm deep, sitting at the bottom of the panel, cut from
+`portrait_source.jpg`. The subject is masked
 out of its background first, so the carving is bounded by its own silhouette
 rather than a rectangular plaque, and the edges where the photo's own crop cuts
 the figure are faded out into the panel surface. `preview_panel.png` is a lit
@@ -46,7 +47,7 @@ python3 prepare.py portrait_source.jpg -o prepared.png \
 
 python3 emboss.py xbloom_face_v1.5_.3mf prepared.png -o xbloom_face_portrait.3mf \
     --repair --flatten 0.6 --face bottom --region 51.76 16.57 135.0 232.26 \
-    --margin 2.5 --mode engrave --depth 1.0 --blur 1.0 --resolution 360
+    --margin 2.5 --valign bottom --mode engrave --depth 1.0 --blur 1.0 --resolution 360
 
 python3 render_panel.py xbloom_face_portrait.3mf -o preview_panel.png \
     --region 50 14 136.5 234.5
@@ -92,6 +93,7 @@ Useful options:
 | `--invert` | raise the light pixels rather than the dark ones |
 | `--threshold 0.5` | binarise, for a crisp flat-topped logo |
 | `--rotate 180` | turn the picture on the face |
+| `--valign/--halign` | sit against an edge of `--region` instead of its middle |
 | `--offset-x/--offset-y` | nudge in mm along the face axes |
 | `--resolution` | pixels along the longest side; drives the triangle count |
 | `--keep-framing` | honour an off-centre subject instead of centring it |

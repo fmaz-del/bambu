@@ -308,6 +308,10 @@ def main():
     p.add_argument("--margin", type=float, default=8.0, help="mm kept clear inside --region")
     p.add_argument("--width", type=float, default=None, help="image width in mm (overrides fit)")
     p.add_argument("--height", type=float, default=None, help="image height in mm")
+    p.add_argument("--halign", default="center", choices=["left", "center", "right"],
+                   help="where in --region the picture sits across the face")
+    p.add_argument("--valign", default="center", choices=["bottom", "center", "top"],
+                   help="where in --region the picture sits up the face")
     p.add_argument("--offset-x", type=float, default=0.0, help="shift along +u, mm")
     p.add_argument("--offset-y", type=float, default=0.0, help="shift along +v, mm")
     p.add_argument("--rotate", type=int, default=0, choices=[0, 90, 180, 270],
@@ -364,10 +368,12 @@ def main():
     if args.region:
         a0, b0, a1, b1 = args.region
         ac, bc = (a0 + a1) / 2, (b0 + b1) / 2
-        avail_u, avail_v = abs(a1 - a0) - 2 * args.margin, abs(b1 - b0) - 2 * args.margin
+        region_u, region_v = abs(a1 - a0), abs(b1 - b0)
+        avail_u, avail_v = region_u - 2 * args.margin, region_v - 2 * args.margin
         cu = us_ * (ac - origin[ua]); cv = vs_ * (bc - origin[va])
     else:
-        avail_u, avail_v = span[ua] * 0.6, span[va] * 0.6
+        region_u, region_v = span[ua], span[va]
+        avail_u, avail_v = region_u * 0.6, region_v * 0.6
         cu = cv = 0.0
     if avail_u <= 0 or avail_v <= 0:
         sys.exit("--margin leaves no room inside --region")
@@ -380,6 +386,14 @@ def main():
     else:
         scale = min(avail_u / (nx / full_u), avail_v / (ny / full_v))
         size_u, size_v = nx * scale, ny * scale
+    # slide the picture to an edge of the region instead of sitting in its middle
+    if args.halign != "center":
+        edge = -1 if args.halign == "left" else 1
+        cu += edge * (region_u / 2 - args.margin - size_u / 2)
+    if args.valign != "center":
+        edge = -1 if args.valign == "bottom" else 1
+        cv += edge * (region_v / 2 - args.margin - size_v / 2)
+
     if args.keep_framing:
         # leave the subject where it sat inside the original picture
         cu += ((box[0] + box[2]) / 2 - 0.5) * size_u / full_u
