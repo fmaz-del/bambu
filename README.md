@@ -31,27 +31,43 @@ prints correctly. An *engrave* would need a repaired mesh first.
 ## Result
 
 `xbloom_face_portrait.3mf` carries the portrait carved into the left panel:
-78 x 77 mm, 1.0 mm deep, sitting at the bottom of the panel, cut from
-`portrait_source.jpg`. The subject is masked
-out of its background first, so the carving is bounded by its own silhouette
-rather than a rectangular plaque, and the edges where the photo's own crop cuts
-the figure are faded out into the panel surface. `preview_panel.png` is a lit
-render of the finished face.
+**83.2 x 107.5 mm, 1.0 mm deep**, running the full width of the panel and
+seated at its bottom edge. The subject is masked out of its background first,
+so the carving is bounded by its own silhouette rather than a rectangular
+plaque, and the edges where the photo's own crop cuts the figure are faded out
+into the panel. `preview_panel.png` is a lit render of the finished face.
 
 Reproduce it with:
 
 ```bash
 python3 prepare.py portrait_source.jpg -o prepared.png \
-    --clahe 1.8 --gamma 1.1 --floor 0.05 \
-    --fade-bottom 0.22 --fade-left 0.13 --fade-top 0.06 --fade-right 0.04
+    --clahe 1.8 --gamma 1.1 --floor 0.05 --feather 1 \
+    --fade-bottom 0.14 --fade-left 0.07
 
 python3 emboss.py xbloom_face_v1.5_.3mf prepared.png -o xbloom_face_portrait.3mf \
     --repair --flatten 0.6 --face bottom --region 51.76 16.57 135.0 232.26 \
-    --margin 2.5 --valign bottom --mode engrave --depth 1.0 --blur 1.0 --resolution 360
+    --margin 0 --valign bottom --mode engrave --depth 1.1 --blur 0.4 --resolution 480
 
 python3 render_panel.py xbloom_face_portrait.3mf -o preview_panel.png \
     --region 50 14 136.5 234.5
 ```
+
+### Checking the output
+
+Verify the written file, not the mesh in memory -- that check cannot catch a
+writer bug, and two of them hid behind it here. Reload the 3MF with
+`process=False`, so trimesh does not merge vertices on the way in and mask
+what is actually stored:
+
+```python
+m = trimesh.Trimesh(V, F, process=False)   # V, F parsed from the archive
+assert m.is_watertight                      # every edge shared by exactly 2 faces
+```
+
+The shipped file passes: 231178 triangles, all 346767 edges at valence 2,
+bounds matching the original to 1.5 um, and all 29 archive entries intact.
+Loading it with trimesh's defaults reports it as non-watertight -- that is the
+loader merging two vertex pairs that sit 10 femtometres apart, not a defect.
 
 ### Why it is carved in and not raised
 
