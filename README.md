@@ -90,6 +90,25 @@ gradient that gives a relief its volume — it pushes the result toward
 outlines, which is the other half of what went wrong on that first print.
 `--clahe 0.6` or lower, and let the global contrast stretch do the work.
 
+### Printing on something other than an X1 Carbon
+
+The project embeds an **X1 Carbon** profile: X1-specific start G-code
+(`;===== machine: X1-0.4 =====`), 20000 mm/s^2 axis accelerations, and
+`@BBL X1C` filament presets. The *print* settings list the P1S as compatible,
+but the *machine* settings are not portable, and rewriting start G-code by hand
+is not worth the risk.
+
+`xbloom_face_raised_no_profile.3mf` is the same geometry with that profile
+removed (`strip_profile.py`), so the slicer applies the settings for whichever
+printer is selected. The model and its position on the plate are unchanged.
+
+**Set the layer height to 0.1 mm after loading it** — without the embedded
+profile it will come in at the printer's default 0.2 mm, which is what turned
+the first print into contour lines.
+
+The part is 172.4 x 215.7 x 79.9 mm and uses 67% x 84% of a 256 mm bed, so it
+fits the P1S, P1P, X1 and A1 alike.
+
 ### Printing notes
 
 - Print in the orientation the project already has: decorated face down, no supports.
