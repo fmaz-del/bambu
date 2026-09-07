@@ -37,6 +37,16 @@ panel width. The project's layer height is set to 0.1 mm.
 
 `xbloom_face_raised_0.2mm.3mf` is the same mesh on the original 0.2 mm profile.
 
+The **screen window** on the right wing is also opened up: the original slotted
+grille is replaced by a single clear rectangle, **71.6 x 27.3 mm at
+X 140.9-212.5, Y 129.7-157.0**, cut through the 2.93 mm plate. The ribs between
+the slots covered the display; the three Ø10 mm holes below it are untouched.
+
+```bash
+python3 cut_opening.py raised.3mf -o screen.3mf \
+    --rect 140.91 129.65 212.51 156.99 --z -2 5
+```
+
 Reproduce with:
 
 ```bash
