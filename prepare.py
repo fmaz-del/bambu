@@ -43,6 +43,10 @@ def main():
     p.add_argument("--fade-top", type=float, default=0.0, metavar="FRAC")
     p.add_argument("--fade-left", type=float, default=0.0, metavar="FRAC")
     p.add_argument("--fade-right", type=float, default=0.0, metavar="FRAC")
+    p.add_argument("--raised", action="store_true",
+                   help="output for raised relief: the subject bright on a black "
+                        "ground, so with emboss --invert it stands out of a lowered "
+                        "panel instead of being cut into it")
     p.add_argument("--aspect", default=None, metavar="W:H",
                    help="centre-crop the picture to this width:height ratio, keeping the "
                         "subject centred, so it can fill a taller or wider panel")
@@ -69,9 +73,14 @@ def main():
     if args.gamma != 1.0:
         g = g ** args.gamma
 
-    depth = (1.0 - g)                                  # how deep to cut
-    depth = args.floor + (1.0 - args.floor) * depth    # keep the subject off the surface
-    depth *= alpha                                     # background cuts nothing
+    if args.raised:
+        # height above the lowered panel: bright is proud, and the floor keeps even
+        # the subject's darkest tones clear of the ground it stands on
+        depth = args.floor + (1.0 - args.floor) * g
+    else:
+        depth = (1.0 - g)                              # how deep to cut
+        depth = args.floor + (1.0 - args.floor) * depth
+    depth *= alpha                                     # background is the ground
 
     # Dissolve the subject into the surface wherever the photo's own crop cuts it,
     # so a straight frame edge does not read as a wall in the relief.
@@ -108,7 +117,8 @@ def main():
         depth = depth[cy - nh // 2:cy - nh // 2 + nh, cx - nw // 2:cx - nw // 2 + nw]
         print(f"cropped to {nw}x{nh} px for a {args.aspect} panel")
 
-    Image.fromarray(((1.0 - depth) * 255).astype(np.uint8), "L").save(args.out)
+    out = depth if args.raised else 1.0 - depth
+    Image.fromarray((out * 255).astype(np.uint8), "L").save(args.out)
     print(f"wrote {args.out}  subject covers {100 * (alpha > 0.5).mean():.1f}% of the frame, "
           f"depth range {depth.min():.2f}..{depth.max():.2f}")
 

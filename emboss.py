@@ -333,6 +333,13 @@ def main():
                    help="pixels along the picture's longest side (mesh density)")
     p.add_argument("--embed", type=float, default=0.6,
                    help="mm the relief base is sunk into the part for a clean join")
+    p.add_argument("--raised", type=float, default=0.0, metavar="MM",
+                   help="lower the whole of --region by MM, then stand the picture "
+                        "back out of it so its peaks finish flush with the original "
+                        "surface. This is how to get raised relief on a face that "
+                        "lies on the build plate: only material is ever removed, so "
+                        "nothing protrudes below Z=0 and it still prints unsupported. "
+                        "Implies --mode emboss with --depth MM.")
     p.add_argument("--flatten", type=float, default=0.0, metavar="MM",
                    help="fill --region flush to the face plane to this depth before "
                         "applying the picture, clearing any old surface decoration")
@@ -344,6 +351,8 @@ def main():
     p.add_argument("--no-boolean", action="store_true",
                    help="merge shells instead of a boolean (emboss only)")
     args = p.parse_args()
+    if args.raised:
+        args.mode, args.depth = "emboss", args.raised
 
     model = trimesh.load(args.model, force="mesh")
     print(f"model:  {len(model.faces)} triangles, bounds "
@@ -411,21 +420,34 @@ def main():
     if args.region and (size_u > avail_u + 1e-6 or size_v > avail_v + 1e-6):
         print("  warning: picture overflows the region")
 
-    if args.flatten:
-        if not args.region:
-            sys.exit("--flatten needs --region")
+    def region_slab(depth_mm):
+        """Box covering --region, from the face plane inward by depth_mm."""
         naxis = int(np.argmax(np.abs(normal)))
         a0, b0, a1, b1 = args.region
         lo = np.empty(3); hi = np.empty(3)
         lo[ua], hi[ua] = min(a0, a1), max(a0, a1)
         lo[va], hi[va] = min(b0, b1), max(b0, b1)
         plane = origin[naxis]
-        inward = plane - normal[naxis] * args.flatten
+        inward = plane - normal[naxis] * depth_mm
         lo[naxis], hi[naxis] = min(plane, inward), max(plane, inward)
-        slab = trimesh.creation.box(bounds=np.array([lo, hi]))
-        print(f"flatten: filling {hi[ua] - lo[ua]:.1f} x {hi[va] - lo[va]:.1f} mm "
-              f"to {args.flatten} mm deep")
+        return trimesh.creation.box(bounds=np.array([lo, hi])), hi - lo
+
+    if args.flatten:
+        if not args.region:
+            sys.exit("--flatten needs --region")
+        slab, ext = region_slab(args.flatten)
+        print(f"flatten: filling {ext[ua]:.1f} x {ext[va]:.1f} mm to {args.flatten} mm deep")
         model = trimesh.boolean.union([model, slab])
+
+    plane_shift = 0.0
+    if args.raised:
+        if not args.region:
+            sys.exit("--raised needs --region")
+        slab, ext = region_slab(args.raised)
+        print(f"raised:  lowering {ext[ua]:.1f} x {ext[va]:.1f} mm by {args.raised} mm, "
+              f"picture stands back up to the original surface")
+        model = trimesh.boolean.difference([model, slab])
+        plane_shift = args.raised      # the relief sits on the lowered floor
 
     if args.mode == "emboss":
         relief = build_relief(hm * args.depth, size_u, size_v, args.embed)
@@ -436,7 +458,7 @@ def main():
 
     frame = np.eye(4)
     frame[:3, 0], frame[:3, 1], frame[:3, 2] = u, v, normal
-    frame[:3, 3] = origin + u * cu + v * cv
+    frame[:3, 3] = origin - normal * plane_shift + u * cu + v * cv
     relief.apply_transform(frame)
 
     if args.no_boolean:
